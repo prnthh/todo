@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Todo Timer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://unpkg.com/ionicons@5.5.2/dist/css/ionicons.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="text/babel">
+        // Timer hook
+        const useTimer = (todo) => {
+            const [elapsed, setElapsed] = React.useState(0);
+
+            React.useEffect(() => {
+                if (!todo.lastStartTime) {
+                    setElapsed(todo.timeSpent);
+                    return;
+                }
+
+                const interval = setInterval(() => {
+                    const currentElapsed = todo.timeSpent + (Date.now() - todo.lastStartTime) / 1000;
+                    setElapsed(currentElapsed);
+                }, 100);
+
+                return () => clearInterval(interval);
+            }, [todo.lastStartTime, todo.timeSpent]);
+
+            const totalTimeSeconds = todo.timeLimit * 60;
+            const progress = Math.min(100, (elapsed / totalTimeSeconds) * 100);
+            const remaining = Math.max(0, totalTimeSeconds - elapsed);
+
+            return { elapsed, progress, remaining };
+        };
+
+        // Define utility function before loading components
+        window.formatTimeDetailed = (seconds) => {
+            if (seconds === null || isNaN(seconds)) return '-';
+            
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            const parts = [];
+            if (hours > 0) parts.push(`${hours}h`);
+            if (minutes > 0) parts.push(`${minutes}m`);
+            if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+            
+            return parts.join(' ');
+        };
+    </script>
+    <script src="components/TodoForm.js" type="text/babel"></script>
+    <script src="components/CurrentTodo.js" type="text/babel"></script>
+    <script src="components/TodoList.js" type="text/babel"></script>
+    <script type="text/babel">
+        function SettingsMenu() {
+            const [isOpen, setIsOpen] = React.useState(false);
+
+            const clearTodos = () => {
+                if (window.confirm('Are you sure you want to clear all todos?')) {
+                    localStorage.clear();
+                    window.location.reload();
+                }
+            };
+
+            return (
+                <div className="absolute top-4 right-4">
+                    <button 
+                        onClick={() => setIsOpen(!isOpen)}
+                        className="p-2 rounded-full hover:bg-gray-200 transition-colors"
+                    >
+                        Settings
+                    </button>
+                    
+                    {isOpen && (
+                        <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                            <div className="py-1">
+                                <button
+                                    onClick={clearTodos}
+                                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                    Clear All Todos
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function App() {
+            const [todos, setTodos] = React.useState(() => {
+                const saved = localStorage.getItem('todos');
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            React.useEffect(() => {
+                localStorage.setItem('todos', JSON.stringify(todos));
+            }, [todos]);
+
+            React.useEffect(() => {
+                const interval = setInterval(() => {
+                    const now = Date.now();
+                    let updated = false;
+                    setTodos(todos => todos.map(todo => {
+                        if (todo.lastStartTime) {
+                            updated = true;
+                            const elapsed = (now - todo.lastStartTime) / 1000;
+                            const timeLimitSeconds = todo.timeLimit * 60;
+                            const totalSpent = todo.timeSpent + elapsed;
+                            if (totalSpent >= timeLimitSeconds) {
+                                return { ...todo, timeSpent: totalSpent, lastStartTime: null };
+                            }
+                        }
+                        return todo;
+                    }));
+                    if (!updated) clearInterval(interval);
+                }, 1000);
+                return () => clearInterval(interval);
+            }, []);
+
+            const addTodo = (task, timeLimit, tag) => {
+                const maxId = todos.length > 0 ? Math.max(...todos.map(t => t.id)) : 0;
+                const newTodo = { 
+                    id: maxId + 1, 
+                    task, 
+                    timeLimit, 
+                    tag, 
+                    completed: false, 
+                    timeSpent: 0, 
+                    lastStartTime: null 
+                };
+                setTodos([...todos, newTodo]);
+            };
+
+            const toggleActive = (id, complete = false) => {
+                setTodos(todos.map(todo => {
+                    if (todo.id === id) {
+                        if (complete) {
+                            const elapsed = todo.lastStartTime 
+                                ? (Date.now() - todo.lastStartTime) / 1000 
+                                : 0;
+                            return {
+                                ...todo,
+                                completed: true,
+                                timeSpent: todo.timeSpent + elapsed,
+                                lastStartTime: null
+                            };
+                        }
+                        if (todo.lastStartTime) {
+                            return {
+                                ...todo,
+                                timeSpent: todo.timeSpent + (Date.now() - todo.lastStartTime) / 1000,
+                                lastStartTime: null
+                            };
+                        }
+                        return { ...todo, lastStartTime: Date.now() };
+                    }
+                    return todo;
+                }));
+            };
+
+            const updateTimeLimit = (id, newTimeLimit) => {
+                setTodos(todos.map(todo => 
+                    todo.id === id 
+                        ? { ...todo, timeLimit: newTimeLimit }
+                        : todo
+                ));
+            };
+
+            return (
+                <div className="container mx-auto px-4 py-8 max-w-4xl relative">
+                    <SettingsMenu />
+                    <h1 className="text-3xl font-bold text-center mb-8">Quest Log</h1>
+                    <TodoForm onAddTodo={addTodo} />
+                    <TodoList
+                        todos={todos}
+                        onToggleActive={toggleActive}
+                        onUpdateTimeLimit={updateTimeLimit}
+                        formatTime={formatTimeDetailed}
+                    />
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
